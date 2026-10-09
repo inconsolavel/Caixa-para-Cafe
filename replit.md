@@ -33,6 +33,7 @@ Aplicativo mobile de ponto de venda para cafeterias, com pedidos e estoque salvo
 
 - O app é mobile-first e mantém os dados no aparelho com AsyncStorage; não depende de conexão com servidor para operar.
 - Cada comanda aberta tem número próprio, pode receber identificação de mesa/nome, ser retomada, editada, cancelada ou finalizada separadamente.
+- Ao editar uma comanda, a busca e a inclusão de produtos acontecem no próprio editor, sem exigir navegação para outra aba.
 - Pedidos em aberto não reduzem o estoque; a baixa só acontece ao finalizar.
 - O histórico mantém os nomes e preços dos itens no momento da venda, mesmo que o produto seja alterado depois.
 

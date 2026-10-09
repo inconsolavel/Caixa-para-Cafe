@@ -11,6 +11,7 @@ import {
   Alert,
 } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCafe } from '@/context/CafeContext';
 import { EmptyState, LoadingState, money, PillButton, SectionTitle, StorageWarning } from '@/components/pos-ui';
@@ -72,6 +73,7 @@ export default function CashScreen() {
 
   const addToCart = (product: Product) => {
     const existing = cart.find((line) => line.productId === product.id);
+    if (product.stock <= 0 || (existing && existing.quantity >= product.stock)) return;
     const nextCart = existing
       ? cart.map((line) => line.productId === product.id ? { ...line, quantity: Math.min(product.stock, line.quantity + 1) } : line)
       : [...cart, { productId: product.id, name: product.name, price: product.price, quantity: 1 }];
@@ -186,6 +188,7 @@ export default function CashScreen() {
         products={products}
         orderNumber={editingOrderId ? orders.find((order) => order.id === editingOrderId)?.number : undefined}
         orderLabel={editingOrderId ? orders.find((order) => order.id === editingOrderId)?.label : undefined}
+        onAddProduct={addToCart}
         onClose={() => setCartOpen(false)}
         onChangeQuantity={changeQuantity}
         onSaveOpen={() => submitOrder(false)}
@@ -235,59 +238,200 @@ function ProductTile({ product, onPress }: { product: Product; onPress: () => vo
 }
 
 function CartModal({
-  visible, lines, products, orderNumber, orderLabel, onClose, onChangeQuantity, onSaveOpen, onFinalize, total, saving,
+  visible, lines, products, orderNumber, orderLabel, onAddProduct, onClose, onChangeQuantity, onSaveOpen, onFinalize, total, saving,
 }: {
   visible: boolean; lines: OrderLine[]; products: Product[]; orderNumber?: number; orderLabel?: string; onClose: () => void;
+  onAddProduct: (product: Product) => void;
   onChangeQuantity: (id: string, delta: number) => void; onSaveOpen: () => void; onFinalize: () => void; total: number; saving: boolean;
 }) {
   const colors = useColors();
+  const [showProductPicker, setShowProductPicker] = useState(false);
+  const [productSearch, setProductSearch] = useState('');
+  const [productCategory, setProductCategory] = useState('Tudo');
+  const productCategories = useMemo(
+    () => ['Tudo', ...Array.from(new Set(products.map((product) => product.category)))],
+    [products],
+  );
+  const availableProducts = useMemo(() => products.filter((product) => {
+    const matchesCategory = productCategory === 'Tudo' || product.category === productCategory;
+    const matchesSearch = product.name.toLocaleLowerCase('pt-BR').includes(productSearch.toLocaleLowerCase('pt-BR'));
+    return matchesCategory && matchesSearch;
+  }), [products, productCategory, productSearch]);
+
+  const openProductPicker = () => {
+    setProductSearch('');
+    setProductCategory('Tudo');
+    setShowProductPicker(true);
+  };
+
+  const closeProductPicker = () => {
+    setShowProductPicker(false);
+    setProductSearch('');
+    setProductCategory('Tudo');
+  };
+
+  const closeModal = () => {
+    closeProductPicker();
+    onClose();
+  };
+
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={closeModal}>
       <View style={[styles.modal, { backgroundColor: colors.background }]}>
         <View style={styles.modalHeading}>
           <View>
             <Text style={[styles.greeting, { color: colors.mutedForeground }]}>{orderNumber ? `${orderLabel ? `${orderLabel} · ` : 'COMANDA ' }#${orderNumber}` : 'NOVA COMANDA'}</Text>
-            <Text style={[styles.modalTitle, { color: colors.foreground }]}>{orderNumber ? 'Gerenciar comanda' : 'Conferir pedido'}</Text>
+            <Text style={[styles.modalTitle, { color: colors.foreground }]}>{showProductPicker ? 'Adicionar produtos' : orderNumber ? 'Gerenciar comanda' : 'Conferir pedido'}</Text>
           </View>
-          <Pressable accessibilityRole="button" accessibilityLabel="Fechar comanda" onPress={onClose} style={[styles.closeButton, { backgroundColor: colors.secondary }]}>
-            <Feather name="x" size={18} color={colors.foreground} />
-          </Pressable>
+          <View style={styles.modalHeaderActions}>
+            {showProductPicker ? (
+              <Pressable testID="back-to-order" accessibilityRole="button" accessibilityLabel="Voltar para a comanda" onPress={closeProductPicker} style={[styles.closeButton, { backgroundColor: colors.secondary }]}>
+                <Feather name="arrow-left" size={18} color={colors.foreground} />
+              </Pressable>
+            ) : null}
+            <Pressable testID="close-order-editor" accessibilityRole="button" accessibilityLabel="Fechar comanda" onPress={closeModal} style={[styles.closeButton, { backgroundColor: colors.secondary }]}>
+              <Feather name="x" size={18} color={colors.foreground} />
+            </Pressable>
+          </View>
         </View>
-        <FlatList
-          data={lines}
-          keyExtractor={(item) => item.productId}
-          contentContainerStyle={{ paddingBottom: 20 }}
-          renderItem={({ item }) => {
-            const product = products.find((candidate) => candidate.id === item.productId);
-            const remainingStock = Math.max(0, (product?.stock ?? 0) - item.quantity);
-            const maxed = item.quantity >= item.quantity + remainingStock;
-            return (
-              <View style={[styles.cartLine, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.lineName, { color: colors.foreground }]}>{item.name}</Text>
-                  <Text style={[styles.linePrice, { color: colors.mutedForeground }]}>{money(item.price)} cada</Text>
-                </View>
-                <View style={styles.quantityStepper}>
-                  <Pressable testID={`remove-${item.productId}`} accessibilityRole="button" accessibilityLabel={`Remover um ${item.name}`} onPress={() => onChangeQuantity(item.productId, -1)} style={[styles.stepButton, { backgroundColor: colors.secondary }]}><Feather name="minus" size={15} color={colors.foreground} /></Pressable>
-                  <Text style={[styles.quantityText, { color: colors.foreground }]}>{item.quantity}</Text>
-                  <Pressable testID={`add-${item.productId}`} accessibilityRole="button" accessibilityLabel={`Adicionar um ${item.name}`} disabled={!product || product.stock <= item.quantity || maxed} onPress={() => onChangeQuantity(item.productId, 1)} style={[styles.stepButton, { backgroundColor: colors.secondary, opacity: !product || product.stock <= item.quantity || maxed ? 0.4 : 1 }]}><Feather name="plus" size={15} color={colors.foreground} /></Pressable>
-                </View>
-                <Text style={[styles.lineTotal, { color: colors.foreground }]}>{money(item.price * item.quantity)}</Text>
+        <KeyboardAvoidingView style={styles.modalBody} behavior="padding" keyboardVerticalOffset={0}>
+          {showProductPicker ? (
+            <View style={styles.pickerBody}>
+              <View style={[styles.search, styles.pickerSearch, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Feather name="search" size={17} color={colors.mutedForeground} />
+                <TextInput
+                  testID="order-product-search"
+                  value={productSearch}
+                  onChangeText={setProductSearch}
+                  placeholder="Buscar produto"
+                  placeholderTextColor={colors.mutedForeground}
+                  style={[styles.searchInput, { color: colors.foreground }]}
+                  returnKeyType="search"
+                  autoCorrect={false}
+                />
+                {productSearch ? (
+                  <Pressable testID="clear-order-product-search" accessibilityRole="button" accessibilityLabel="Limpar busca" onPress={() => setProductSearch('')}>
+                    <Feather name="x-circle" size={17} color={colors.mutedForeground} />
+                  </Pressable>
+                ) : null}
               </View>
-            );
-          }}
-          ListEmptyComponent={<EmptyState icon="shopping-bag" title="Sua comanda está vazia" detail="Volte ao cardápio e toque nos itens que deseja adicionar." />}
-        />
-        <View style={[styles.checkoutFooter, { borderTopColor: colors.border }]}>
-          <View style={styles.totalRow}><Text style={[styles.totalLabel, { color: colors.mutedForeground }]}>Total do pedido</Text><Text style={[styles.totalValue, { color: colors.foreground }]}>{money(total)}</Text></View>
-          <Text style={[styles.stockNote, { color: colors.mutedForeground }]}>O estoque só é baixado ao finalizar o pedido.</Text>
-          <View style={styles.checkoutActions}>
-            <PillButton label={orderNumber ? 'Salvar alterações' : 'Deixar em aberto'} icon="clock" tone="soft" disabled={saving || (!lines.length && !orderNumber)} onPress={onSaveOpen} testID="save-open-order" />
-            <PillButton label="Finalizar pedido" icon="check" disabled={saving || !lines.length} onPress={onFinalize} testID="finalize-order" />
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.pickerChips}>
+                {productCategories.map((category) => {
+                  const selected = category === productCategory;
+                  return (
+                    <Pressable
+                      key={category}
+                      testID={`order-category-${category}`}
+                      accessibilityRole="button"
+                      onPress={() => setProductCategory(category)}
+                      style={[styles.chip, styles.pickerChip, { backgroundColor: selected ? colors.primary : colors.card, borderColor: selected ? colors.primary : colors.border }]}
+                    >
+                      <Text style={{ color: selected ? colors.primaryForeground : colors.mutedForeground, fontWeight: '700', fontSize: 12 }}>{category}</Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+              <FlatList
+                testID="order-product-list"
+                style={styles.pickerList}
+                data={availableProducts}
+                keyExtractor={(item) => item.id}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="interactive"
+                contentContainerStyle={{ paddingBottom: 14 }}
+                renderItem={({ item }) => (
+                  <QuickAddProductRow
+                    product={item}
+                    quantity={lines.find((line) => line.productId === item.id)?.quantity ?? 0}
+                    onAdd={() => onAddProduct(item)}
+                  />
+                )}
+                ListEmptyComponent={<EmptyState icon="search" title="Nenhum produto encontrado" detail="Tente outro nome ou escolha outra categoria." />}
+              />
+            </View>
+          ) : (
+            <>
+              <View style={styles.lineListHeading}>
+                <Text style={[styles.lineListTitle, { color: colors.foreground }]}>Itens da comanda</Text>
+                <PillButton label="Adicionar itens" icon="plus" tone="soft" onPress={openProductPicker} testID="add-products-to-order" />
+              </View>
+              <FlatList
+                style={styles.orderLinesList}
+                data={lines}
+                keyExtractor={(item) => item.productId}
+                contentContainerStyle={{ paddingBottom: 20, flexGrow: lines.length ? 0 : 1 }}
+                renderItem={({ item }) => {
+                  const product = products.find((candidate) => candidate.id === item.productId);
+                  const remainingStock = Math.max(0, (product?.stock ?? 0) - item.quantity);
+                  const maxed = item.quantity >= item.quantity + remainingStock;
+                  return (
+                    <View style={[styles.cartLine, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.lineName, { color: colors.foreground }]}>{item.name}</Text>
+                        <Text style={[styles.linePrice, { color: colors.mutedForeground }]}>{money(item.price)} cada</Text>
+                      </View>
+                      <View style={styles.quantityStepper}>
+                        <Pressable testID={`remove-${item.productId}`} accessibilityRole="button" accessibilityLabel={`Remover um ${item.name}`} onPress={() => onChangeQuantity(item.productId, -1)} style={[styles.stepButton, { backgroundColor: colors.secondary }]}><Feather name="minus" size={15} color={colors.foreground} /></Pressable>
+                        <Text style={[styles.quantityText, { color: colors.foreground }]}>{item.quantity}</Text>
+                        <Pressable testID={`add-${item.productId}`} accessibilityRole="button" accessibilityLabel={`Adicionar um ${item.name}`} disabled={!product || product.stock <= item.quantity || maxed} onPress={() => onChangeQuantity(item.productId, 1)} style={[styles.stepButton, { backgroundColor: colors.secondary, opacity: !product || product.stock <= item.quantity || maxed ? 0.4 : 1 }]}><Feather name="plus" size={15} color={colors.foreground} /></Pressable>
+                      </View>
+                      <Text style={[styles.lineTotal, { color: colors.foreground }]}>{money(item.price * item.quantity)}</Text>
+                    </View>
+                  );
+                }}
+                ListEmptyComponent={<EmptyState icon="shopping-bag" title="Sua comanda está vazia" detail="Adicione produtos pelo botão acima para começar." />}
+              />
+            </>
+          )}
+          <View style={[styles.checkoutFooter, { borderTopColor: colors.border }]}>
+            <View style={styles.totalRow}><Text style={[styles.totalLabel, { color: colors.mutedForeground }]}>{showProductPicker ? 'Total da comanda' : 'Total do pedido'}</Text><Text style={[styles.totalValue, { color: colors.foreground }]}>{money(total)}</Text></View>
+            <Text style={[styles.stockNote, { color: colors.mutedForeground }]}>O estoque só é baixado ao finalizar o pedido.</Text>
+            {showProductPicker ? (
+              <PillButton label="Voltar para a comanda" icon="arrow-left" tone="soft" onPress={closeProductPicker} testID="return-to-order" />
+            ) : (
+              <View style={styles.checkoutActions}>
+                <PillButton label={orderNumber ? 'Salvar alterações' : 'Deixar em aberto'} icon="clock" tone="soft" disabled={saving || (!lines.length && !orderNumber)} onPress={onSaveOpen} testID="save-open-order" />
+                <PillButton label="Finalizar pedido" icon="check" disabled={saving || !lines.length} onPress={onFinalize} testID="finalize-order" />
+              </View>
+            )}
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </View>
     </Modal>
+  );
+}
+
+function QuickAddProductRow({ product, quantity, onAdd }: { product: Product; quantity: number; onAdd: () => void }) {
+  const colors = useColors();
+  const unavailable = product.stock <= 0;
+  const atLimit = quantity >= product.stock;
+  const disabled = unavailable || atLimit;
+  const availability = unavailable
+    ? 'Sem estoque'
+    : atLimit
+      ? 'Limite de estoque atingido'
+      : quantity
+        ? `${quantity} na comanda · ${product.stock - quantity} disponíveis`
+        : `${product.stock} disponíveis`;
+
+  return (
+    <View style={[styles.pickerProductRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.pickerProductName, { color: colors.foreground }]} numberOfLines={1}>{product.name}</Text>
+        <Text style={[styles.pickerProductAvailability, { color: disabled ? colors.mutedForeground : colors.mutedForeground }]}>{availability}</Text>
+      </View>
+      <Text style={[styles.pickerProductPrice, { color: colors.primary }]}>{money(product.price)}</Text>
+      <Pressable
+        testID={`quick-add-${product.id}`}
+        accessibilityRole="button"
+        accessibilityLabel={unavailable ? `${product.name}, sem estoque` : atLimit ? `${product.name}, limite de estoque atingido` : `Adicionar ${product.name}, ${money(product.price)}`}
+        disabled={disabled}
+        onPress={onAdd}
+        style={({ pressed }) => [styles.quickAddButton, { backgroundColor: disabled ? colors.secondary : colors.primary, opacity: pressed ? 0.78 : 1 }]}
+      >
+        <Feather name={unavailable ? 'minus' : atLimit ? 'check' : 'plus'} size={17} color={disabled ? colors.mutedForeground : colors.primaryForeground} />
+      </Pressable>
+    </View>
   );
 }
 
@@ -325,8 +469,23 @@ const styles = StyleSheet.create({
   cartTotal: { fontWeight: '800', fontSize: 14 },
   modal: { flex: 1, paddingTop: 22, paddingHorizontal: 18 },
   modalHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 18 },
+  modalHeaderActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  modalBody: { flex: 1 },
   modalTitle: { fontSize: 25, fontWeight: '700', letterSpacing: -0.6 },
   closeButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 14 },
+  lineListHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingBottom: 12 },
+  lineListTitle: { fontSize: 15, fontWeight: '700' },
+  orderLinesList: { flex: 1 },
+  pickerBody: { flex: 1 },
+  pickerSearch: { marginBottom: 2 },
+  pickerChips: { gap: 8, paddingVertical: 10, paddingRight: 5 },
+  pickerChip: { minHeight: 34, paddingHorizontal: 13 },
+  pickerList: { flex: 1 },
+  pickerProductRow: { minHeight: 68, borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 9, flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
+  pickerProductName: { fontSize: 14, fontWeight: '700' },
+  pickerProductAvailability: { fontSize: 11, marginTop: 4 },
+  pickerProductPrice: { fontSize: 13, fontWeight: '800' },
+  quickAddButton: { width: 38, height: 38, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   cartLine: { borderWidth: 1, borderRadius: 18, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: 10 },
   lineName: { fontSize: 14, fontWeight: '700' },
   linePrice: { fontSize: 11, marginTop: 3 },
