@@ -1,0 +1,24 @@
+kind = "mobile"
+previewPath = "/"
+title = "Caixa do Café"
+description = "Aplicativo mobile de caixa para cafeterias, com cadastro de produtos, controle de pedidos em aberto e histórico, e gestão de estoque. Os pedidos são finalizados sem integração de pagamentos e os dados ficam salvos no aparelho."
+version = "1.0.0"
+id = "artifacts/caixa-cafe"
+router = "expo-domain"
+
+[[services]]
+name = "expo"
+ensurePreviewReachable = "/status"
+paths = [ "/" ]
+localPort = 20523
+
+[services.development]
+run = "pnpm --filter @workspace/caixa-cafe run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/caixa-cafe", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/caixa-cafe", "run", "serve" ]
+
+[services.env]
+PORT = "20523"
+BASE_PATH = "/"

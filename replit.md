@@ -1,6 +1,6 @@
-# [Project name]
+# Caixa do Café
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Aplicativo mobile de ponto de venda para cafeterias, com pedidos e estoque salvos localmente no aparelho.
 
 ## Run & Operate
 
@@ -22,23 +22,33 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/caixa-cafe/app/(tabs)/index.tsx` — caixa, cardápio e montagem de pedidos
+- `artifacts/caixa-cafe/app/(tabs)/orders.tsx` — pedidos em aberto e histórico de finalizados
+- `artifacts/caixa-cafe/app/(tabs)/stock.tsx` — consulta e ajuste de estoque
+- `artifacts/caixa-cafe/app/(tabs)/products.tsx` — cadastro e edição do cardápio
+- `artifacts/caixa-cafe/context/CafeContext.tsx` — estado e persistência local
+- `artifacts/caixa-cafe/constants/colors.ts` — tema marrom para claro e escuro
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- O app é mobile-first e mantém os dados no aparelho com AsyncStorage; não depende de conexão com servidor para operar.
+- Pedidos em aberto reservam itens visualmente, mas só reduzem o estoque quando são finalizados.
+- O histórico mantém os nomes e preços dos itens no momento da venda, mesmo que o produto seja alterado depois.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- Montar pedidos pelo cardápio, guardar comandas em aberto e finalizar sem processar pagamento.
+- Consultar histórico de pedidos finalizados.
+- Cadastrar, editar e excluir produtos; ajustar estoque e ver alertas de baixo estoque.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- Interface em português, pensada para uso no celular, com marrons e tons de café.
+- Não integrar pagamentos; finalizar o pedido é suficiente.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Finalizar um pedido aberto falha com aviso se o estoque atual não cobrir todos os itens da comanda.
 
 ## Pointers
 
