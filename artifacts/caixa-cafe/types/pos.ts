@@ -17,6 +17,7 @@ export type OrderLine = {
 export type Order = {
   id: string;
   number: number;
+  label?: string;
   status: 'open' | 'completed';
   createdAt: string;
   completedAt?: string;

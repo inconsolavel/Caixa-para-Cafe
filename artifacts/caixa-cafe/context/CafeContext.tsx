@@ -20,12 +20,18 @@ type CafeContextValue = {
   orders: Order[];
   isLoading: boolean;
   storageError: string | null;
+  orderIdToEdit: string | null;
   addProduct: (product: Omit<Product, 'id'>) => void;
   updateProduct: (product: Product) => void;
   deleteProduct: (id: string) => void;
   adjustStock: (id: string, delta: number) => void;
   createOrder: (lines: OrderLine[], finalize: boolean) => CheckoutResult;
+  createBlankOrder: (label?: string) => Order | null;
+  requestOrderEdit: (id: string) => void;
+  clearOrderEditRequest: () => void;
+  updateOpenOrder: (id: string, lines: OrderLine[], finalize: boolean) => CheckoutResult;
   finalizeOrder: (id: string) => CheckoutResult;
+  cancelOpenOrder: (id: string) => void;
 };
 
 const CafeContext = createContext<CafeContextValue | null>(null);
@@ -54,6 +60,9 @@ function makeId() {
 }
 
 function completionResult(data: PosData, order: Order): CheckoutResult {
+  if (!order.lines.length) {
+    return { ok: false, message: 'Adicione pelo menos um produto antes de finalizar a comanda.' };
+  }
   for (const line of order.lines) {
     const product = data.products.find((item) => item.id === line.productId);
     if (!product || product.stock < line.quantity) {
@@ -79,6 +88,7 @@ export function CafeProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [storageLoaded, setStorageLoaded] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
+  const [orderIdToEdit, setOrderIdToEdit] = useState<string | null>(null);
 
   const commit = useCallback((next: PosData) => {
     dataRef.current = next;
@@ -176,6 +186,66 @@ export function CafeProvider({ children }: { children: ReactNode }) {
     return { ok: true, order };
   }, [commit]);
 
+  const createBlankOrder = useCallback((label?: string): Order | null => {
+    const current = dataRef.current;
+    const order: Order = {
+      id: makeId(),
+      number: current.nextOrderNumber,
+      label: label?.trim() || undefined,
+      status: 'open',
+      createdAt: new Date().toISOString(),
+      lines: [],
+      total: 0,
+    };
+    commit({
+      ...current,
+      nextOrderNumber: current.nextOrderNumber + 1,
+      orders: [order, ...current.orders],
+    });
+    setOrderIdToEdit(order.id);
+    return order;
+  }, [commit]);
+
+  const requestOrderEdit = useCallback((id: string) => {
+    const order = dataRef.current.orders.find((item) => item.id === id);
+    if (order?.status === 'open') setOrderIdToEdit(id);
+  }, []);
+
+  const clearOrderEditRequest = useCallback(() => {
+    setOrderIdToEdit(null);
+  }, []);
+
+  const updateOpenOrder = useCallback((id: string, lines: OrderLine[], finalize: boolean): CheckoutResult => {
+    const current = dataRef.current;
+    const existingOrder = current.orders.find((item) => item.id === id);
+    if (!existingOrder || existingOrder.status !== 'open') {
+      return { ok: false, message: 'Esta comanda não está mais em aberto.' };
+    }
+    const updatedOrder: Order = {
+      ...existingOrder,
+      lines,
+      total: lines.reduce((sum, line) => sum + line.price * line.quantity, 0),
+    };
+    if (!finalize) {
+      commit({
+        ...current,
+        orders: current.orders.map((item) => item.id === id ? updatedOrder : item),
+      });
+      return { ok: true, order: updatedOrder };
+    }
+    const result = completionResult(current, updatedOrder);
+    if (!result.ok) return result;
+    commit({
+      ...current,
+      orders: current.orders.map((item) => item.id === id ? result.order : item),
+      products: current.products.map((product) => {
+        const line = lines.find((item) => item.productId === product.id);
+        return line ? { ...product, stock: product.stock - line.quantity } : product;
+      }),
+    });
+    return result;
+  }, [commit]);
+
   const finalizeOrder = useCallback((id: string): CheckoutResult => {
     const current = dataRef.current;
     const order = current.orders.find((item) => item.id === id);
@@ -195,18 +265,33 @@ export function CafeProvider({ children }: { children: ReactNode }) {
     return result;
   }, [commit]);
 
+  const cancelOpenOrder = useCallback((id: string) => {
+    const current = dataRef.current;
+    commit({
+      ...current,
+      orders: current.orders.filter((item) => item.id !== id || item.status !== 'open'),
+    });
+    setOrderIdToEdit((selected) => selected === id ? null : selected);
+  }, [commit]);
+
   const value = useMemo<CafeContextValue>(() => ({
     products: data.products,
     orders: data.orders,
     isLoading,
     storageError,
+    orderIdToEdit,
     addProduct,
     updateProduct,
     deleteProduct,
     adjustStock,
     createOrder,
+    createBlankOrder,
+    requestOrderEdit,
+    clearOrderEditRequest,
+    updateOpenOrder,
     finalizeOrder,
-  }), [data, isLoading, storageError, addProduct, updateProduct, deleteProduct, adjustStock, createOrder, finalizeOrder]);
+    cancelOpenOrder,
+  }), [data, isLoading, storageError, orderIdToEdit, addProduct, updateProduct, deleteProduct, adjustStock, createOrder, createBlankOrder, requestOrderEdit, clearOrderEditRequest, updateOpenOrder, finalizeOrder, cancelOpenOrder]);
 
   return <CafeContext.Provider value={value}>{children}</CafeContext.Provider>;
 }

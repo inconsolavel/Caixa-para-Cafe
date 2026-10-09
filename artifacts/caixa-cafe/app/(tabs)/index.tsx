@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
   Modal,
@@ -24,10 +24,20 @@ const iconForCategory: Record<string, keyof typeof MaterialCommunityIcons.glyphM
 export default function CashScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { products, orders, isLoading, storageError, createOrder } = useCafe();
+  const {
+    products,
+    orders,
+    isLoading,
+    storageError,
+    orderIdToEdit,
+    createOrder,
+    updateOpenOrder,
+    clearOrderEditRequest,
+  } = useCafe();
   const [category, setCategory] = useState('Tudo');
   const [search, setSearch] = useState('');
   const [cart, setCart] = useState<OrderLine[]>([]);
+  const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [cartOpen, setCartOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const categories = useMemo(() => ['Tudo', ...Array.from(new Set(products.map((item) => item.category)))], [products]);
@@ -39,36 +49,66 @@ export default function CashScreen() {
   const cartTotal = cart.reduce((sum, line) => sum + line.price * line.quantity, 0);
   const cartCount = cart.reduce((sum, line) => sum + line.quantity, 0);
 
+  useEffect(() => {
+    if (!orderIdToEdit) return;
+    const order = orders.find((item) => item.id === orderIdToEdit && item.status === 'open');
+    if (order) {
+      setEditingOrderId(order.id);
+      setCart(order.lines);
+      setCartOpen(true);
+    }
+    clearOrderEditRequest();
+  }, [orderIdToEdit, orders, clearOrderEditRequest]);
+
+  useEffect(() => {
+    if (!editingOrderId) return;
+    const stillOpen = orders.some((order) => order.id === editingOrderId && order.status === 'open');
+    if (!stillOpen) {
+      setEditingOrderId(null);
+      setCart([]);
+      setCartOpen(false);
+    }
+  }, [editingOrderId, orders]);
+
   const addToCart = (product: Product) => {
-    setCart((current) => {
-      const existing = current.find((line) => line.productId === product.id);
-      if (existing) {
-        return current.map((line) => line.productId === product.id ? { ...line, quantity: Math.min(product.stock, line.quantity + 1) } : line);
-      }
-      return [...current, { productId: product.id, name: product.name, price: product.price, quantity: 1 }];
-    });
+    const existing = cart.find((line) => line.productId === product.id);
+    const nextCart = existing
+      ? cart.map((line) => line.productId === product.id ? { ...line, quantity: Math.min(product.stock, line.quantity + 1) } : line)
+      : [...cart, { productId: product.id, name: product.name, price: product.price, quantity: 1 }];
+    setCart(nextCart);
+    if (editingOrderId) updateOpenOrder(editingOrderId, nextCart, false);
   };
 
   const changeQuantity = (id: string, delta: number) => {
-    setCart((current) => current.flatMap((line) => {
+    const nextCart = cart.flatMap((line) => {
       if (line.productId !== id) return [line];
       const quantity = line.quantity + delta;
       return quantity <= 0 ? [] : [{ ...line, quantity }];
-    }));
+    });
+    setCart(nextCart);
+    if (editingOrderId) updateOpenOrder(editingOrderId, nextCart, false);
   };
 
   const submitOrder = (finalize: boolean) => {
-    if (saving || !cart.length) return;
+    if (saving || (finalize && !cart.length)) return;
     setSaving(true);
-    const result = createOrder(cart, finalize);
+    const result = editingOrderId
+      ? updateOpenOrder(editingOrderId, cart, finalize)
+      : createOrder(cart, finalize);
     setSaving(false);
     if (!result.ok) {
       Alert.alert('Não foi possível concluir', result.message);
       return;
     }
     setCart([]);
+    setEditingOrderId(null);
     setCartOpen(false);
-    Alert.alert(finalize ? 'Pedido finalizado' : 'Pedido em aberto', finalize ? `Comanda #${result.order.number} finalizada e estoque atualizado.` : `Comanda #${result.order.number} salva para finalizar depois.`);
+    const message = finalize
+      ? `Comanda #${result.order.number} finalizada e estoque atualizado.`
+      : editingOrderId
+        ? `Comanda #${result.order.number} foi atualizada e continua em aberto.`
+        : `Comanda #${result.order.number} salva para finalizar depois.`;
+    Alert.alert(finalize ? 'Pedido finalizado' : editingOrderId ? 'Comanda atualizada' : 'Pedido em aberto', message);
   };
 
   if (isLoading) return <LoadingState />;
@@ -144,6 +184,8 @@ export default function CashScreen() {
         visible={cartOpen}
         lines={cart}
         products={products}
+        orderNumber={editingOrderId ? orders.find((order) => order.id === editingOrderId)?.number : undefined}
+        orderLabel={editingOrderId ? orders.find((order) => order.id === editingOrderId)?.label : undefined}
         onClose={() => setCartOpen(false)}
         onChangeQuantity={changeQuantity}
         onSaveOpen={() => submitOrder(false)}
@@ -193,9 +235,9 @@ function ProductTile({ product, onPress }: { product: Product; onPress: () => vo
 }
 
 function CartModal({
-  visible, lines, products, onClose, onChangeQuantity, onSaveOpen, onFinalize, total, saving,
+  visible, lines, products, orderNumber, orderLabel, onClose, onChangeQuantity, onSaveOpen, onFinalize, total, saving,
 }: {
-  visible: boolean; lines: OrderLine[]; products: Product[]; onClose: () => void;
+  visible: boolean; lines: OrderLine[]; products: Product[]; orderNumber?: number; orderLabel?: string; onClose: () => void;
   onChangeQuantity: (id: string, delta: number) => void; onSaveOpen: () => void; onFinalize: () => void; total: number; saving: boolean;
 }) {
   const colors = useColors();
@@ -204,8 +246,8 @@ function CartModal({
       <View style={[styles.modal, { backgroundColor: colors.background }]}>
         <View style={styles.modalHeading}>
           <View>
-            <Text style={[styles.greeting, { color: colors.mutedForeground }]}>NOVA COMANDA</Text>
-            <Text style={[styles.modalTitle, { color: colors.foreground }]}>Conferir pedido</Text>
+            <Text style={[styles.greeting, { color: colors.mutedForeground }]}>{orderNumber ? `${orderLabel ? `${orderLabel} · ` : 'COMANDA ' }#${orderNumber}` : 'NOVA COMANDA'}</Text>
+            <Text style={[styles.modalTitle, { color: colors.foreground }]}>{orderNumber ? 'Gerenciar comanda' : 'Conferir pedido'}</Text>
           </View>
           <Pressable accessibilityRole="button" accessibilityLabel="Fechar comanda" onPress={onClose} style={[styles.closeButton, { backgroundColor: colors.secondary }]}>
             <Feather name="x" size={18} color={colors.foreground} />
@@ -240,7 +282,7 @@ function CartModal({
           <View style={styles.totalRow}><Text style={[styles.totalLabel, { color: colors.mutedForeground }]}>Total do pedido</Text><Text style={[styles.totalValue, { color: colors.foreground }]}>{money(total)}</Text></View>
           <Text style={[styles.stockNote, { color: colors.mutedForeground }]}>O estoque só é baixado ao finalizar o pedido.</Text>
           <View style={styles.checkoutActions}>
-            <PillButton label="Deixar em aberto" icon="clock" tone="soft" disabled={saving || !lines.length} onPress={onSaveOpen} testID="save-open-order" />
+            <PillButton label={orderNumber ? 'Salvar alterações' : 'Deixar em aberto'} icon="clock" tone="soft" disabled={saving || (!lines.length && !orderNumber)} onPress={onSaveOpen} testID="save-open-order" />
             <PillButton label="Finalizar pedido" icon="check" disabled={saving || !lines.length} onPress={onFinalize} testID="finalize-order" />
           </View>
         </View>
