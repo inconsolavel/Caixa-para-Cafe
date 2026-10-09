@@ -387,7 +387,7 @@ function CartModal({
             <View style={styles.totalRow}><Text style={[styles.totalLabel, { color: colors.mutedForeground }]}>{showProductPicker ? 'Total da comanda' : 'Total do pedido'}</Text><Text style={[styles.totalValue, { color: colors.foreground }]}>{money(total)}</Text></View>
             <Text style={[styles.stockNote, { color: colors.mutedForeground }]}>O estoque só é baixado ao finalizar o pedido.</Text>
             {showProductPicker ? (
-              <PillButton label="Voltar para a comanda" icon="arrow-left" tone="soft" onPress={closeProductPicker} testID="return-to-order" />
+              <PillButton label="Voltar à comanda" icon="arrow-left" tone="primary" onPress={closeProductPicker} testID="return-to-order" />
             ) : (
               <View style={styles.checkoutActions}>
                 <PillButton label={orderNumber ? 'Salvar alterações' : 'Deixar em aberto'} icon="clock" tone="soft" disabled={saving || (!lines.length && !orderNumber)} onPress={onSaveOpen} testID="save-open-order" />
@@ -478,8 +478,8 @@ const styles = StyleSheet.create({
   orderLinesList: { flex: 1 },
   pickerBody: { flex: 1 },
   pickerSearch: { marginBottom: 2 },
-  pickerChips: { gap: 8, paddingVertical: 10, paddingRight: 5 },
-  pickerChip: { minHeight: 34, paddingHorizontal: 13 },
+  pickerChips: { alignItems: 'center', gap: 8, paddingVertical: 10, paddingRight: 5 },
+  pickerChip: { alignSelf: 'center', minHeight: 34, paddingVertical: 0, paddingHorizontal: 13 },
   pickerList: { flex: 1 },
   pickerProductRow: { minHeight: 68, borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 9, flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
   pickerProductName: { fontSize: 14, fontWeight: '700' },
